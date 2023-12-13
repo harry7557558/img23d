@@ -17,6 +17,8 @@
 #include "solver.h"
 #include "render.h"
 
+#include "triangle_wrapper.h"
+
 #include "meshgen_trig_implicit.h"
 #include "marching_squares.h"
 
@@ -184,12 +186,16 @@ DiscretizedModel<float, float> imageTo3D() {
     }
 #endif
 
-    // std::vector<std::vector<int>> boundary;
-    marchingSquaresTrigs(w, h, alphas, (uint8_t)127, vs, trigs);
-    // marchingSquaresEdges(w, h, alphas, (uint8_t)127, vs, boundary);
+    std::vector<std::vector<int>> boundary;
+    // marchingSquaresTrigs(w, h, alphas, (uint8_t)127, vs, trigs);
+    marchingSquaresEdges(w, h, alphas, (uint8_t)127, vs, boundary);
     for (int i = 0; i < (int)vs.size(); i++)
         vs[i] = (2.0f*vs[i]/vec2(w,h)-1.0f)*br;
     delete[] alphas;
+
+    std::vector<vec2> vs1;
+    triangleGenerateMesh(vs, boundary, vs1, trigs);
+    vs = vs1;
 
 #endif
 

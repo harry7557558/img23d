@@ -162,8 +162,10 @@ void marchingSquares_(
                     const int *lut = &LUTF[idx][pi][0];
                     for (int _ = 0; _ < 12 && lut[_] != -1; _ += 3) {
                         ivec3 t(i[lut[_]], i[lut[_+1]], i[lut[_+2]]);
-                        newTrigs[pi].push_back(t);
-                        cost[pi] = (cost[pi]*(_/3) + trigCost(t)) / (_/3+1);
+                        if (t[0] != -1 && t[1] != -1 && t[2] != -1) {
+                            newTrigs[pi].push_back(t);
+                            cost[pi] = (cost[pi]*(_/3) + trigCost(t)) / (_/3+1);
+                        }
                     }
                 }
                 if (boundary_only) {
@@ -212,7 +214,7 @@ void marchingSquaresTrigs(
 
 void marchingSquaresEdges(
     int nx, int ny, const uint8_t *img, uint8_t th,
-    std::vector<vec2> &verts, std::vector<std::vector<int>> boundary
+    std::vector<vec2> &verts, std::vector<std::vector<int>> &boundary
     // std::vector<vec2> &verts, std::vector<ivec3> &trigs
 ) {
     std::vector<ivec2> boundaryEdges;
