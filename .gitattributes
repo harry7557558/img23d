@@ -1,4 +1,6 @@
 * text=auto
 * text eol=lf
 
+*.wasm binary
+
 Triangle/ linguist-vendored
