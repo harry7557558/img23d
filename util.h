@@ -30,6 +30,26 @@ using glm::dot; using glm::cross; using glm::outerProduct;
 using glm::mat2; using glm::mat3; using glm::mat4; using glm::mat2x3; using glm::mat3x2;
 using glm::inverse; using glm::transpose; using glm::determinant;
 
+namespace std {
+template<>
+struct hash<glm::ivec2> {
+    size_t operator()(const glm::ivec2& v) const {
+        return hash<uint64_t>()(*(uint64_t*)&v);
+    }
+};
+template<>
+struct hash<glm::ivec3> {
+    size_t operator()(const glm::ivec3& v) const {
+        return hash<int>()(v.x) ^ hash<int>()(v.y) ^ hash<int>()(v.z);
+    }
+};
+template<>
+struct hash<glm::ivec4> {
+    size_t operator()(const glm::ivec4& v) const {
+        return hash<int>()(v.x) ^ hash<int>()(v.y) ^ hash<int>()(v.z) ^ hash<int>()(v.w);
+    }
+};
+}
 
 // timer
 #include <chrono>

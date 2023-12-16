@@ -120,7 +120,7 @@ void DiscretizedModel<float, float>::solveLaplacian() {
             f[Imap[i]] = masses[Imap[i]] * F[i];
     float* u = new float[Ns];
     for (int i = 0; i < Ns; i++)
-        u[i] = 1e-4f * randn();
+        u[i] = 1e-8f * randn();
 
     // solve the linear system
     CsrMatrix csr(lil);
@@ -131,10 +131,7 @@ void DiscretizedModel<float, float>::solveLaplacian() {
     printf("Linear system constructed in %.2g secs. (%dx%d, %d nonzeros)\n",
         time1 - time0, Ns, Ns, csr.getNonzeros());
     // tolerance
-    float tol = 0.0;
-    for (int i = 0; i < Ns; i++)
-        tol += dot(f[i], f[i]);
-    tol = 1e-4f * sqrt(tol/(float)Ns);
+    float tol = 1e-8f * sqrt(vecnorm2(Ns,f)/(float)Ns);
 #define PRECOND 1  // 1: diag; 2: cholesky; 3: ssor
 #if !PRECOND
     float time2 = time1;

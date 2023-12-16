@@ -17,9 +17,8 @@
 #include "solver.h"
 #include "render.h"
 
-#include "triangle_wrapper.h"
+#include "meshgen.h"
 
-#include "meshgen_trig_implicit.h"
 #include "marching_squares.h"
 
 #include "write_model.h"
@@ -89,71 +88,15 @@ DiscretizedModel<float, float> model;
 DiscretizedModel<float, float> imageTo3D() {
     using namespace Img23d;
 
+    float time0 = getTimePast();
+
     vec2 scale = vec2(w, h) / (float)fmax(w, h);
     int gx = (int)(scale.x / grid0 + 1.0f);
     int gy = (int)(scale.y / grid0 + 1.0f);
     vec2 bc = vec2(0), br = scale;
     renderModel.bound = br;
 
-#if 0
-
-    MeshgenTrigImplicit::ScalarFieldF F = [&](float x, float y) -> float {
-        x = 0.5f + 0.5f * x / scale.x;
-        y = 0.5f + 0.5f * y / scale.y;
-        x = fmax(x, 0.0f) * (w - 1);
-        y = fmax(1.0f-y, 0.0f) * (h - 1);
-        int xi = (int)x; float xf = x - xi;
-        int yi = (int)y; float yf = y - yi;
-        float v00 = getPixel(xi + 0, yi + 0);
-        float v10 = getPixel(xi + 1, yi + 0);
-        float v01 = getPixel(xi + 0, yi + 1);
-        float v11 = getPixel(xi + 1, yi + 1);
-        // xf = xf*xf*(3.0f-2.0f*xf);
-        // yf = yf*yf*(3.0f-2.0f*yf);
-        float v = mix(mix(v00, v10, xf), mix(v01, v11, xf), yf);
-        return (1.0f-threshold) - v;
-    };
-    MeshgenTrigImplicit::ScalarFieldFBatch Fs = [&](size_t n, const vec2 *p, float *v) {
-        for (int i = 0; i < n; i++)
-            v[i] = F(p[i].x, p[i].y);
-    };
-
-    auto constraint = [=](vec2 p) {
-        p -= bc;
-        return -vec2(
-            sign(p.x) * fmax(abs(p.x) - br.x, 0.0),
-            sign(p.y) * fmax(abs(p.y) - br.y, 0.0)
-        );
-    };
-
-    float t0 = getTimePast();
-
-    std::vector<vec2> vs;
-    std::vector<ivec3> trigs;
-    std::vector<bool> isConstrained[2];
-    MeshgenTrigImplicit::generateInitialMesh(
-        Fs, bc-br, bc+br,
-        ivec2(gx, gy), depth,
-        vs, trigs, isConstrained
-    );
-    MeshgenTrigImplicit::assertAreaEqual(vs, trigs);
-    float t1 = getTimePast();
-    printf("Mesh generated in %.2g secs.\n", t1-t0);
-    MeshgenTrigImplicit::splitStickyVertices(vs, trigs, isConstrained);
-    MeshgenTrigImplicit::assertAreaEqual(vs, trigs);
-    float t2 = getTimePast();
-    printf("Mesh cleaned in %.2g secs.\n", t2-t1);
-
-    MeshgenTrigImplicit::smoothMesh(
-        vs, trigs, 5, Fs,
-        constraint, isConstrained);
-    MeshgenTrigImplicit::assertAreaEqual(vs, trigs);
-    float t3 = getTimePast();
-    printf("Mesh optimized in %.2g secs.\n", t3-t2);
-
-#else
-
-    std::vector<vec2> vs;
+    std::vector<vec2> verts;
     std::vector<ivec3> trigs;
     uint8_t *alphas = new uint8_t[w*h];
     for (int y = 0; y < h; y++) {
@@ -165,8 +108,11 @@ DiscretizedModel<float, float> imageTo3D() {
 #if 1
     const int R = 1;
     const int filter[2*R+1][2*R+1] = {
-        { 1, 2, 1 }, { 2, 4, 2 }, { 1, 2, 1 }
+        { 1, 2, 1 }, { 2, 20, 2 }, { 1, 2, 1 }
     };
+    // const int filter[2*R+1][2*R+1] = {
+    //     { 1, 2, 1 }, { 2, 4, 2 }, { 1, 2, 1 }
+    // };
     // const int filter[2*R+1][2*R+1] = {
     //     { 1,4,7,4,1 }, { 4,16,26,16,4 }, { 7,26,41,26,7 }, { 4,16,26,16,4 }, { 1,4,7,4,1 }
     // };
@@ -186,25 +132,28 @@ DiscretizedModel<float, float> imageTo3D() {
     }
 #endif
 
+    float time1 = getTimePast();
+
     std::vector<std::vector<int>> boundary;
-    // marchingSquaresTrigs(w, h, alphas, (uint8_t)127, vs, trigs);
-    marchingSquaresEdges(w, h, alphas, (uint8_t)127, vs, boundary);
-    for (int i = 0; i < (int)vs.size(); i++)
-        vs[i] = (2.0f*vs[i]/vec2(w,h)-1.0f)*br;
+    marchingSquaresEdges(w, h, alphas, (uint8_t)127, verts, boundary);
+    for (int i = 0; i < (int)verts.size(); i++)
+        verts[i] = (2.0f*verts[i]/vec2(w,h)-1.0f)*br;
     delete[] alphas;
 
-    std::vector<vec2> vs1;
-    triangleGenerateMesh(vs, boundary, vs1, trigs);
-    vs = vs1;
+    generateMesh(verts, boundary, verts, trigs);
+    splitBridgeEdges(verts, trigs);
 
-#endif
+    float time2 = getTimePast();
 
     DiscretizedModel<float, float> res = solveLaplacian(
-        vs, std::vector<float>(vs.size(), 4.0f), trigs);
+        verts, std::vector<float>(verts.size(), 4.0f), trigs);
     for (int i = 0; i < res.N; i++)
         res.U[i] = 1.0f*sqrt(fmax(res.U[i], 0.0f));
     float maxu = 0.0; for (int i = 0; i < res.N; i++) maxu = fmax(maxu, res.U[i]);
-    printf("height: %f\n", maxu);
+
+    float time3 = getTimePast();
+    printf("imageTo3D: %.2g + %.2g + %.2g = %.2g secs\n",
+        time1-time0, time2-time1, time3-time2, time3-time0);
 
     return res;
 }

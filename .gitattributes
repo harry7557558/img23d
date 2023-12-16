@@ -3,4 +3,4 @@
 
 *.wasm binary
 
-Triangle/ linguist-vendored
+Triangle/* linguist-vendored

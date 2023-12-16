@@ -64,8 +64,9 @@ function initDragDrop() {
         let canvas = document.createElement("canvas");
         if (img.width == 0 || img.height == 0)
             return onerror();
-        canvas.width = img.width == 0 ? 1024 : img.width;
-        canvas.height = img.height == 0 ? 1024 : img.height;
+        var sc = Math.min(Math.sqrt(1048576/(img.width*img.height)), 1);
+        canvas.width = img.width == 0 ? 1024 : Math.round(sc*img.width);
+        canvas.height = img.height == 0 ? 1024 : Math.round(sc*img.height);
         let ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);

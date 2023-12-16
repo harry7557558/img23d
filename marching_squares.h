@@ -7,7 +7,6 @@
 
 void marchingSquares_(
     int nx, int ny, const uint8_t *img, uint8_t th,
-    bool boundary_only,
     std::vector<vec2> &verts,
     std::vector<ivec2> &boundaryEdges,
     std::vector<ivec3> &trigs
@@ -50,7 +49,7 @@ void marchingSquares_(
         for (int x = 0; x < nx; x++) {
             int i = y*nx+x;
             if (img[i] <= th) {
-                if (boundary_only && !(y == 0 || y == ny-1 || x == 0 || x == nx-1))
+                if (!(y == 0 || y == ny-1 || x == 0 || x == nx-1))
                     continue;
                 vertmap[i] = (int)verts.size()+1;
                 verts.push_back(vec2(x,y));
@@ -122,6 +121,8 @@ void marchingSquares_(
                 idx |= int(img[vi[_]] <= th) << _;
             if (idx == 0)
                 continue;
+            if (idx == 15 && !(y == 0 || y == ny-2 || x == 0 || x == nx-2))
+                continue;
             uint64_t ei[4] = {
                 getEdgeIdx(vi[0], vi[1]),
                 getEdgeIdx(vi[1], vi[2]),
@@ -135,23 +136,14 @@ void marchingSquares_(
             // cross add trig
             if (idx == 15) {
                 int pi = (x&1)^(y&1);
-                if (boundary_only) {
-                    const int *lut = &LUTE[idx][0][0];
-                    for (int _ = 0; _ < 12 && lut[_] != -1; _ += 2) {
-                        ivec2 e = { i[lut[_]], i[lut[_+1]] };
-                        if (e[0] != -1 && e[1] != -1) {
-                            if (bedges.find(getEdgeIdx(e[1], e[0])) != bedges.end())
-                                bedges.erase(getEdgeIdx(e[1], e[0]));
-                            else bedges.insert(getEdgeIdx(e[0], e[1]));
-                        }
+                const int *lut = &LUTE[idx][0][0];
+                for (int _ = 0; _ < 12 && lut[_] != -1; _ += 2) {
+                    ivec2 e = { i[lut[_]], i[lut[_+1]] };
+                    if (e[0] != -1 && e[1] != -1) {
+                        if (bedges.find(getEdgeIdx(e[1], e[0])) != bedges.end())
+                            bedges.erase(getEdgeIdx(e[1], e[0]));
+                        else bedges.insert(getEdgeIdx(e[0], e[1]));
                     }
-                }
-                else {
-                    const int *lut = &LUTF[idx][pi][0];
-                    if (pi == 1 && *lut == -1)
-                        lut = &LUTF[idx][0][0];
-                    for (int _ = 0; _ < 12 && lut[_] != -1; _ += 3)
-                        trigs.push_back({ i[lut[_]], i[lut[_+1]], i[lut[_+2]] });
                 }
             }
             // choose the combination with lower aspect ratio
@@ -168,23 +160,15 @@ void marchingSquares_(
                         }
                     }
                 }
-                if (boundary_only) {
-                    int pi = LUTE[idx][1][0] == -1 || cost[0] < cost[1] ? 0 : 1;
-                    const int *lut = &LUTE[idx][pi][0];
-                    for (int _ = 0; _ < 12 && lut[_] != -1; _ += 2) {
-                        ivec2 e = { i[lut[_]], i[lut[_+1]] };
-                        if (e[0] != -1 && e[1] != -1) {
-                            if (bedges.find(getEdgeIdx(e[1], e[0])) != bedges.end())
-                                bedges.erase(getEdgeIdx(e[1], e[0]));
-                            else bedges.insert(getEdgeIdx(e[0], e[1]));
-                        }
+                int pi = LUTE[idx][1][0] == -1 || cost[0] < cost[1] ? 0 : 1;
+                const int *lut = &LUTE[idx][pi][0];
+                for (int _ = 0; _ < 12 && lut[_] != -1; _ += 2) {
+                    ivec2 e = { i[lut[_]], i[lut[_+1]] };
+                    if (e[0] != -1 && e[1] != -1) {
+                        if (bedges.find(getEdgeIdx(e[1], e[0])) != bedges.end())
+                            bedges.erase(getEdgeIdx(e[1], e[0]));
+                        else bedges.insert(getEdgeIdx(e[0], e[1]));
                     }
-                }
-                else {
-                    std::vector<ivec3> app = cost[1] == 0.0 ? newTrigs[0]:
-                        cost[0] < cost[1] ? newTrigs[0] : newTrigs[1];
-                    for (ivec3 t : app)
-                        trigs.push_back(t);
                 }
             }
         }
@@ -192,25 +176,15 @@ void marchingSquares_(
 
     float time2 = getTimePast();
 
-    if (boundary_only) {
-        boundaryEdges.clear();
-        for (uint64_t e : bedges)
-            boundaryEdges.push_back(ivec2(int(e>>32), int(e)));
-    }
+    boundaryEdges.clear();
+    for (uint64_t e : bedges)
+        boundaryEdges.push_back(ivec2(int(e>>32), int(e)));
 
     float time3 = getTimePast();
     printf("marchingSquares_: %.2g + %.2g + %.2g = %.2g secs\n",
         time1-time0, time2-time1, time3-time2, time3-time0);
 }
 
-
-void marchingSquaresTrigs(
-    int nx, int ny, const uint8_t *img, uint8_t th,
-    std::vector<vec2> &verts, std::vector<ivec3> &trigs
-){
-    std::vector<ivec2> boundaryEdges;
-    marchingSquares_(nx, ny, img, th, false, verts, boundaryEdges, trigs);
-}
 
 void marchingSquaresEdges(
     int nx, int ny, const uint8_t *img, uint8_t th,
@@ -219,9 +193,9 @@ void marchingSquaresEdges(
 ) {
     std::vector<ivec2> boundaryEdges;
     std::vector<ivec3> trigs;
-    marchingSquares_(nx, ny, img, th, true, verts, boundaryEdges, trigs);
+    marchingSquares_(nx, ny, img, th, verts, boundaryEdges, trigs);
 
-    printf("%d %d\n", (int)verts.size(), (int)boundaryEdges.size());
+    // printf("%d %d\n", (int)verts.size(), (int)boundaryEdges.size());
     assert(verts.size() == boundaryEdges.size());
 
     std::vector<ivec2> neighbors(verts.size(), ivec2(-1));
