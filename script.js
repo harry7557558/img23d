@@ -57,8 +57,11 @@ function onError(message) {
 function initDragDrop() {
     let dropArea = document.getElementById("control");
     let img = new Image();
-    let onerror = function() {
-        onError("error: unsupported image format");
+    let onerror = function(message) {
+        if (message)
+            onError("error: " + message);
+        else
+            onError("error: unsupported image format");
     };
     function imgOnload(img_src) {
         let canvas = document.createElement("canvas");
@@ -97,23 +100,45 @@ function initDragDrop() {
         let errorMessage = document.getElementById("error-message");
         errorMessage.style.display = "none";
         dropArea.style.backgroundColor = null;
-        let file = e.dataTransfer.files[0];
-        if (file && (
-            file.type == "image/png" ||
-            file.type == "image/jpeg" ||
-            file.type == "image/gif" ||
-            file.type == "image/webp" ||
-            file.type == "image/svg+xml"
-            )) {
-            let reader = new FileReader();
-            reader.onload = function(event) {
-                img = new Image();
-                img.onload = function(e) { imgOnload(file.name); };
-                img.onerror = onerror;
-                img.src = event.target.result;
+        if (e.dataTransfer.files.length > 0) {
+            let file = e.dataTransfer.files[0];
+            if (file && (
+                file.type == "image/png" ||
+                file.type == "image/jpeg" ||
+                file.type == "image/gif" ||
+                file.type == "image/webp" ||
+                file.type == "image/svg+xml"
+                )) {
+                let reader = new FileReader();
+                reader.onload = function(event) {
+                    img = new Image();
+                    img.onload = function(e) { imgOnload(file.name); };
+                    img.onerror = onerror;
+                    img.src = event.target.result;
+                }
+                reader.onerror = onerror;
+                reader.readAsDataURL(file);
             }
-            reader.onerror = onerror;
-            reader.readAsDataURL(file);
+            else onerror();
+        }
+        else if (e.dataTransfer.items.length > 0) {
+            var found = false;
+            for (var i = 0; i < e.dataTransfer.items.length; i++) {
+                let item = e.dataTransfer.items[i]
+                if (item.kind != "string" || item.type != "text/plain")
+                    continue;
+                item.getAsString((s) => {
+                    let filename = s.split('/')[s.split('/').length-1];
+                    img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = (e) => { imgOnload(filename); };
+                    img.onerror = (e) => { onerror("failed to load image.<br/>" +
+                        "If you are drag-dropping from browser, try switching browser, or save the image as a local file and drag drop from local file viewer."); };
+                    img.src = s;
+                });
+                found = true;
+            }
+            if (!found) onerror();
         }
         else onerror();
     });
