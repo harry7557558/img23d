@@ -84,6 +84,121 @@ void triangleWrapper(
 }
 
 
+void resamplePolygon(
+    const std::vector<vec2> &boundary,
+    std::vector<vec2> &output
+) {
+    // find largest angle
+    int bn0 = (int)boundary.size();
+    float maxc = -1.0f;
+    int i0 = 0;
+    for (int i = 0; i < bn0; i++) {
+        vec2 v = boundary[i];
+        vec2 v0 = boundary[(i+bn0-1)%bn0];
+        vec2 v1 = boundary[(i+1)%bn0];
+        float c = dot(v0-v,v1-v)/(length(v0-v)*length(v1-v));
+        if (c > maxc)
+            maxc = c, i0 = i;
+    }
+
+    // cubic interpolation
+    const float tau = 0.5f;
+    mat4 catmull_rom(
+        0.0f, -tau, 2.0f*tau, -tau,
+        1.0f, 0.0f, tau-3.0f, 2.0f-tau,
+        0.0f, tau, 3.0f-2.0f*tau, tau-2.0f,
+        0.0f, 0.0f, -tau, tau
+    );
+    const float quad_samples[4] = { .06943184420297371238,.33000947820757186759,.66999052179242813240,.93056815579702628761 };
+    const float quad_weights[4] = { .17392742256872692868,.32607257743127307131,.32607257743127307131,.17392742256872692868 };
+    std::vector<mat2x4> weights;
+    weights.reserve(bn0);
+    std::vector<float> length_psa;
+    length_psa.reserve(bn0+1);
+    length_psa.push_back(0.0f);
+    for (int i = 0; i < bn0; i++) {
+        // weights
+        vec2 v0 = boundary[(i0+i+bn0-1)%bn0];
+        vec2 v1 = boundary[(i0+i)%bn0];
+        vec2 v2 = boundary[(i0+i+1)%bn0];
+        vec2 v3 = boundary[(i0+i+2)%bn0];
+        mat4x2 v(v0, v1, v2, v3);
+        mat2x4 w = catmull_rom * transpose(v);
+        weights.push_back(w);
+        // length
+        float l = 0.0f;
+        for (int _ = 0; _ < 4; _++) {
+            float t = quad_samples[_];
+            vec4 u(0.0f, 1.0f, 2.0f*t, 3.0f*t*t);
+            float dl = length(u*w);
+            l += quad_weights[_] * dl;
+        }
+        length_psa.push_back(length_psa.back()+l);
+    }
+    for (int i = 0; i < bn0; i++)
+        assert(length_psa[i] < length_psa[i+1]);
+    float clength = length_psa.back();
+    // printf("%f / %d = %f\n", length, bn0, length/bn0);
+    auto curve = [&](float s) -> vec2 {
+        s = clamp(s, 0.0f, 0.999999f*clength);
+        int i = std::upper_bound(length_psa.begin(), length_psa.end()-1, s) - length_psa.begin() - 1;
+        float t = (s-length_psa[i])/(length_psa[i+1]-length_psa[i]);
+        assert(t >= 0.0 && t <= 1.0);
+        t = clamp(t, 0.0f, 1.0f);
+        return vec4(1.0f, t, t*t, t*t*t) * weights[i];
+    };
+
+    // resample
+    int bn = std::max(bn0/3, std::min(bn0, 6));
+    float dl = clength / bn0;
+    float tol = 0.1f * dl;
+    float ltol = 0.01f;  // sqrt(4/sqrt(3)*0.001)=0.05 for equilateral
+    auto segmentSdf = [](vec2 p, vec2 a, vec2 b) {
+        vec2 ba = b - a, pa = p - a;
+        float h = dot(pa, ba) / dot(ba, ba);
+        vec2 dp = pa - clamp(h, 0.0f, 1.0f) * ba;
+        return length(dp);
+    };
+    auto errorBetween = [&](float s1, float s2) {
+        vec2 p1 = curve(s1);
+        vec2 p2 = curve(s2);
+        int ns = (int)((s2-s1)/dl+0.51);
+        float ds = (s2-s1) / ns;
+        float err = 0.0;
+        for (int i = 0; i < ns; i++) {
+            float s = mix(s1, s2, (i+0.5)/ns);
+            vec2 p = curve(s);
+            err += segmentSdf(p, p1, p2) * ds;
+        }
+        return err / (s2-s1);
+    };
+    std::vector<vec2> stack;
+    stack.push_back(vec2(0.0f, clength));
+    output.clear();
+    while (!stack.empty()) {
+        vec2 s = stack.back();
+        float err = errorBetween(s.x, s.y);
+        float l = length(curve(s.y) - curve(s.x));
+        if (err > 9.0f * tol || l > 3.0f * ltol) {
+            stack.push_back(vec2(s.x, 0.5f*(s.x+s.y)));
+            continue;
+        }
+        output.push_back(curve(s.x));
+        if (err > 4.0f * tol || l > 2.0f * ltol) {
+            output.push_back(curve(mix(s.x, s.y, 1.0f/3.0f)));
+            output.push_back(curve(mix(s.x, s.y, 2.0f/3.0f)));
+        }
+        else if (err > tol) {
+            output.push_back(curve(0.5f*(s.x+s.y)));
+        }
+        while (!stack.empty() && s.y == stack.back().y)
+            stack.pop_back();
+        if (!stack.empty())
+            stack.push_back(vec2(s.y, stack.back().y));
+    }
+}
+
+
 void generateMesh(
     std::vector<vec2> verts,
     const std::vector<std::vector<int>> &boundary,
@@ -100,38 +215,13 @@ void generateMesh(
     std::vector<ivec2> segments;
     std::vector<vec2> holes;
     for (std::vector<int> b0 : boundary) {
-        // remove too close verts
-        int bn0 = (int)b0.size();
-        if (!(bn0 >= 3)) continue;
-        float totLength = 0.0f;
-        for (int i = 0; i < bn0; i++)
-            totLength += length(verts[b0[(i+1)%bn0]]-verts[b0[i]]);
-        float th = 0.2f * totLength / (float)bn0;
-        std::vector<int> b;
-        for (int i : b0) {
-            if (!b.empty() && length(verts[i]-verts[b.back()]) < th)
-                continue;
-            b.push_back(i);
-        }
-        while (!b.empty() && length(verts[b[0]]-verts[b.back()]) < th)
-            b.pop_back();
-        int bn = (int)b.size();
-        if (!(bn >= 6)) continue;
-
-        // smooth boundary
-        std::vector<vec2> ps(b.size());
-        for (int _ = 0; _ < 2; _++) {
-            // float k = _ % 2 == 0 ? 0.5f : -0.5f;
-            float k = 0.2f;
-            for (int i = 0; i < bn; i++) {
-                vec2 p1 = verts[b[(i+1)%bn]];
-                vec2 p0 = verts[b[(i+bn-1)%bn]];
-                vec2 pc = verts[b[i]];
-                ps[i] = pc + k * (p0+p1-2.0f*pc);
-            }
-            for (int i = 0; i < bn; i++)
-                verts[b[i]] = ps[i];
-        }
+        std::vector<vec2> b;
+        b.reserve(b0.size());
+        for (int i : b0)
+            b.push_back(verts[i]);
+        std::vector<vec2> ps = b;
+        resamplePolygon(b, ps);
+        int bn = (int)ps.size();
 
         // check if it's a hole
         float area2 = 0.0;
