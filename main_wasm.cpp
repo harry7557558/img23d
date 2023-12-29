@@ -28,13 +28,14 @@
 
 namespace Img23d {
 
-float threshold = 0.5;
-float grid0 = 0.01;
-int depth = 2;
+int channel = 0;
+bool reverseAlpha = false;
+uint8_t threshold = 127;
 
 std::string name;
-bool containAlpha = true;
 uint8_t *data = nullptr;
+uint8_t *dataWithoutAlpha = nullptr;
+uint8_t *dataAlpha = nullptr;
 int w = 0, h = 0;
 
 bool showEdges = false;
@@ -49,16 +50,56 @@ float getPixel(int x, int y) {
     return (float)data[4*idx+3] / 255.0f;
 }
 
-void removeImageAlpha() {
-    if (!containAlpha)
-        return;
-    uint8_t pth = (uint8_t)(threshold*255+0.5);
+void computeAlpha() {
+    if (dataAlpha)
+        delete dataAlpha;
+    dataAlpha = new uint8_t[w*h];
+    for (int i = 0; i < w*h; i++) {
+        uint8_t c[4] = {
+            data[4*i], data[4*i+1], data[4*i+2],
+            data[4*i+3]
+        };
+        dataAlpha[i] = 0;
+        if (channel == 0)  // alpha
+            dataAlpha[i] = c[3];
+        if (channel == 1)  // luma
+            dataAlpha[i] = (uint8_t)((
+                299*(int)c[0] +
+                587*(int)c[1] +
+                114*(int)c[2]) / 1000);
+        if (channel == 2)  // min
+            dataAlpha[i] = std::min(std::min(c[0], c[1]), c[2]);
+        if (channel == 3)  // max
+            dataAlpha[i] = std::max(std::max(c[0], c[1]), c[2]);
+        if (channel == 4)  // chroma
+            dataAlpha[i] = std::max(std::max(c[0], c[1]), c[2])
+                - std::min(std::min(c[0], c[1]), c[2]);
+        if (channel == 5)  // red
+            dataAlpha[i] = c[0];
+        if (channel == 6)  // green
+            dataAlpha[i] = c[1];
+        if (channel == 7)  // red
+            dataAlpha[i] = c[2];
+        if (channel != 0)
+            dataAlpha[i] = (uint8_t)(reverseAlpha ?
+                255 - (((255-(int)dataAlpha[i]) * (int)c[3]) >> 8) :
+                ((int)dataAlpha[i] * (int)c[3]) >> 8);
+        if (!reverseAlpha)
+            dataAlpha[i] = ~dataAlpha[i];
+    }
+}
+
+void computeImageWithoutAlpha() {
+    if (dataWithoutAlpha)
+        delete dataWithoutAlpha;
+    dataWithoutAlpha = new uint8_t[4*w*h];
+    memcpy(dataWithoutAlpha, data, 4*w*h);
     for (int i = 0; i < w*h; i++)
-        data[4*i+3] = (data[4*i+3]>pth ? 255 : 0);
+        dataWithoutAlpha[4*i+3] = data[4*i+3] > threshold ? 255 : 0;
     std::vector<ivec2> visited;
     for (int y = 0; y < h; y++)
         for (int x = 0; x < w; x++)
-            if (data[4*(y*w+x)+3])
+            if (dataWithoutAlpha[4*(y*w+x)+3])
                 visited.push_back(ivec2(x, y));
     while (!visited.empty()) {
         std::vector<ivec2> visited1;
@@ -69,15 +110,15 @@ void removeImageAlpha() {
                     int i = i0+di, j = j0+dj;
                     if (i < 0 || j < 0 || i >= w || j >= h)
                         continue;
-                    if (data[4*(j*w+i)+3])
+                    if (dataWithoutAlpha[4*(j*w+i)+3])
                         continue;
                     visited1.push_back(ivec2(i, j));
-                    ((uint32_t*)data)[j*w+i] = ((uint32_t*)data)[j0*w+i0];
+                    ((uint32_t*)dataWithoutAlpha)[j*w+i] =
+                        ((uint32_t*)dataWithoutAlpha)[j0*w+i0];
                 }
         }
         visited = visited1;
     }
-    containAlpha = false;
 }
 
 DiscretizedModel<float, float> model;
@@ -91,19 +132,14 @@ DiscretizedModel<float, float> imageTo3D() {
     float time0 = getTimePast();
 
     vec2 scale = vec2(w, h) / (float)fmax(w, h);
-    int gx = (int)(scale.x / grid0 + 1.0f);
-    int gy = (int)(scale.y / grid0 + 1.0f);
     vec2 bc = vec2(0), br = scale;
     renderModel.bound = br;
 
     std::vector<vec2> verts;
     std::vector<ivec3> trigs;
+
+    Img23d::computeAlpha();
     uint8_t *alphas = new uint8_t[w*h];
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            alphas[y*w+x] = 255-data[4*((h-1-y)*w+x)+3];
-        }
-    }
 
 #if 1
     const int R = 1;
@@ -123,7 +159,7 @@ DiscretizedModel<float, float> imageTo3D() {
                 for (int dx = -R; dx <= R; dx++) {
                     if (y+dy >= 0 && y+dy < h && x+dx >= 0 && x+dx < w) {
                         totw += filter[dy+1][dx+1];
-                        totv += int(255-data[4*((y+dy)*w+(x+dx))+3]) * filter[dy+1][dx+1];
+                        totv += int(dataAlpha[(y+dy)*w+(x+dx)]) * filter[dy+1][dx+1];
                     }
                 }
             }
@@ -135,7 +171,8 @@ DiscretizedModel<float, float> imageTo3D() {
     float time1 = getTimePast();
 
     std::vector<std::vector<int>> boundary;
-    marchingSquaresEdges(w, h, alphas, (uint8_t)127, verts, boundary);
+    uint8_t th = reverseAlpha ? ~threshold : threshold;
+    marchingSquaresEdges(w, h, alphas, th, verts, boundary);
     for (int i = 0; i < (int)verts.size(); i++)
         verts[i] = (2.0f*verts[i]/vec2(w,h)-1.0f)*br;
     delete[] alphas;
@@ -299,12 +336,12 @@ void prepareMesh(const DiscretizedModel<float, float> &model) {
     }
 
     // texture
-    Img23d::removeImageAlpha();
+    Img23d::computeImageWithoutAlpha();
     uint32_t white = 0xffe0e0e0;
     if (Img23d::showTexture)
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
             Img23d::w, Img23d::h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-            Img23d::data);
+            Img23d::dataWithoutAlpha);
     else
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
             1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE,
@@ -324,6 +361,37 @@ int main() {
     return 0;
 }
 
+
+EXTERN EMSCRIPTEN_KEEPALIVE
+void setChannel(int channel) {
+    bool isUpdated = Img23d::channel == channel;
+    Img23d::channel = channel;
+    if (!isUpdated) {
+        Img23d::model = imageTo3D();
+        prepareMesh(Img23d::model);
+        RenderParams::viewport->renderNeeded = true;
+    }
+}
+EXTERN EMSCRIPTEN_KEEPALIVE
+void setThreshold(uint8_t threshold) {
+    bool isUpdated = Img23d::threshold == threshold;
+    Img23d::threshold = threshold;
+    if (!isUpdated) {
+        Img23d::model = imageTo3D();
+        prepareMesh(Img23d::model);
+        RenderParams::viewport->renderNeeded = true;
+    }
+}
+EXTERN EMSCRIPTEN_KEEPALIVE
+void setAlphaReverse(bool reverse) {
+    bool isUpdated = Img23d::reverseAlpha == reverse;
+    Img23d::reverseAlpha = reverse;
+    if (!isUpdated) {
+        Img23d::model = imageTo3D();
+        prepareMesh(Img23d::model);
+        RenderParams::viewport->renderNeeded = true;
+    }
+}
 
 EXTERN EMSCRIPTEN_KEEPALIVE
 void setMeshEdge(bool edge) {
@@ -372,14 +440,16 @@ void updateImage(const char* name, int w, int h, uint8_t *data) {
         delete Img23d::data;
     Img23d::data = data;
 
-    Img23d::containAlpha = false;
-    for (int i = 0; i < w*h; i++)
+    if (Img23d::channel == 0) {
+        bool containAlpha = false;
+        for (int i = 0; i < w*h; i++)
         if (Img23d::data[4*i+3] != 255) {
-            Img23d::containAlpha = true;
+            containAlpha = true;
             break;
         }
-    if (!Img23d::containAlpha)
-        emscripten_run_script("onError('warning: image has no alpha')");
+        if (!containAlpha)
+            emscripten_run_script("onError('warning: image has no alpha')");
+    }
 
     Img23d::model = imageTo3D();
     prepareMesh(Img23d::model);
@@ -459,7 +529,7 @@ EXTERN EMSCRIPTEN_KEEPALIVE
 uint8_t* generateGLB() {
     int nbytes;
     uint8_t *imgbytes_raw = stbi_write_png_to_mem(
-        Img23d::data, 4*Img23d::w, Img23d::w, Img23d::h, 4, &nbytes);
+        Img23d::dataWithoutAlpha, 4*Img23d::w, Img23d::w, Img23d::h, 4, &nbytes);
     std::vector<uint8_t> imgbytes(imgbytes_raw, imgbytes_raw+nbytes);
     free(imgbytes_raw);
 

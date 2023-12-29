@@ -161,21 +161,30 @@ function initInteraction() {
 }
 
 function initConfig() {
+    let selectChannel = document.getElementById("select-channel");
+    let sliderThreshold = document.getElementById("slider-threshold");
+    let checkboxReverse = document.getElementById("checkbox-reverse");
     let checkboxEdge = document.getElementById("checkbox-edge");
     let checkboxNormal = document.getElementById("checkbox-normal");
     let checkboxDoubleSided = document.getElementById("checkbox-double-sided");
     let checkboxTexture = document.getElementById("checkbox-texture");
-    function updateCheckboxes() {
+    function updateParameters() {
+        Module.ccall('setChannel', null, ['int'], [Number(selectChannel.value)]);
+        Module.ccall('setThreshold', null, ['int'], [sliderThreshold.value]);
+        Module.ccall('setAlphaReverse', null, ['int'], [checkboxReverse.checked]);
         Module.ccall('setMeshEdge', null, ['int'], [checkboxEdge.checked]);
         Module.ccall('setMeshNormal', null, ['int'], [checkboxNormal.checked]);
         Module.ccall('setMeshDoubleSided', null, ['int'], [checkboxDoubleSided.checked]);
         Module.ccall('setMeshTexture', null, ['int'], [checkboxTexture.checked]);
     }
-    checkboxEdge.addEventListener("input", updateCheckboxes);
-    checkboxNormal.addEventListener("input", updateCheckboxes);
-    checkboxDoubleSided.addEventListener("input", updateCheckboxes);
-    checkboxTexture.addEventListener("input", updateCheckboxes);
-    updateCheckboxes();
+    selectChannel.addEventListener("input", updateParameters);
+    sliderThreshold.addEventListener("input", updateParameters);
+    checkboxReverse.addEventListener("input", updateParameters);
+    checkboxEdge.addEventListener("input", updateParameters);
+    checkboxNormal.addEventListener("input", updateParameters);
+    checkboxDoubleSided.addEventListener("input", updateParameters);
+    checkboxTexture.addEventListener("input", updateParameters);
+    updateParameters();
 }
 
 function onReady() {
