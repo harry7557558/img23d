@@ -1,6 +1,6 @@
 // WASM, compile with Emscripten
 
-#define SUPPRESS_ASSERT 1
+#define SUPPRESS_ASSERT 0
 
 #include <emscripten/emscripten.h>
 
@@ -67,13 +67,13 @@ void computeAlpha() {
                 299*(int)c[0] +
                 587*(int)c[1] +
                 114*(int)c[2]) / 1000);
-        if (channel == 2)  // min
-            dataAlpha[i] = std::min(std::min(c[0], c[1]), c[2]);
-        if (channel == 3)  // max
-            dataAlpha[i] = std::max(std::max(c[0], c[1]), c[2]);
-        if (channel == 4)  // chroma
+        if (channel == 2)  // chroma
             dataAlpha[i] = std::max(std::max(c[0], c[1]), c[2])
                 - std::min(std::min(c[0], c[1]), c[2]);
+        if (channel == 3)  // min
+            dataAlpha[i] = std::min(std::min(c[0], c[1]), c[2]);
+        if (channel == 4)  // max
+            dataAlpha[i] = std::max(std::max(c[0], c[1]), c[2]);
         if (channel == 5)  // red
             dataAlpha[i] = c[0];
         if (channel == 6)  // green

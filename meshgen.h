@@ -199,6 +199,104 @@ void resamplePolygon(
 }
 
 
+std::vector<vec2> holeLocation(
+    std::vector<std::vector<vec2>> boundary
+) {
+    typedef double real;
+
+    // get a sorted list of x
+    std::vector<float> sorted;
+    for (std::vector<vec2> polygon : boundary)
+        for (vec2 p : polygon)
+            sorted.push_back(p.x);
+    std::sort(sorted.begin(), sorted.end());
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+    int sn = (int)sorted.size();
+
+    // y=mx+b intervals
+    struct Interval {
+        bool isleft, isnonsingular;
+        float yleft, yright;
+    };
+    std::vector<std::vector<Interval>> intervals(sn-1);
+    for (std::vector<vec2> polygon : boundary) {
+        int pn = (int)polygon.size();
+        for (int i = 0; i < pn; i++) {
+            int j = (i+1)%pn;
+            if (polygon[i].x == polygon[j].x)
+                continue;
+            real m = ((real)polygon[j].y - (real)polygon[i].y) /
+                ((real)polygon[j].x - (real)polygon[i].x);
+            real b = (real)polygon[i].y - m * (real)polygon[i].x;
+            int si = std::lower_bound(sorted.begin(), sorted.end(), polygon[i].x) - sorted.begin();
+            int sj = std::lower_bound(sorted.begin(), sorted.end(), polygon[j].x) - sorted.begin();
+            assert(si >= 0 && si < sn);
+            assert(sj >= 0 && sj < sn);
+            assert(si != sj);
+            assert(sorted[si] == polygon[i].x);
+            assert(sorted[sj] == polygon[j].x);
+            for (int _ = std::min(si,sj); _ < std::max(si,sj); _++) {
+                float yi = (float)(m * (real)sorted[_] + b);
+                float yj = (float)(m * (real)sorted[_+1] + b);
+                intervals[_].push_back({
+                    si>sj, fabs(m) < 20.0,
+                    si<sj?yi:yj,
+                    si<sj?yj:yi });
+            }
+        }
+    }
+
+    // add holes
+    std::vector<vec2> holes;
+    int prevIndex = 0;
+    std::vector<std::vector<vec2>> records;
+    auto addRecord = [&]() {
+        if (records.empty()) return;
+        float xmid = 0.5f*(records[0][0].x + records.back()[0].x);
+        auto it = std::lower_bound(records.begin(), records.end()-1, xmid,
+            [](std::vector<vec2> a, float b) { return a[0].x < b; });
+        holes.insert(holes.end(), it->begin(), it->end());
+        records.clear();
+    };
+    for (int i = 0; i < sn-1; i++) {
+        std::vector<Interval> v = intervals[i];
+        std::sort(v.begin(), v.end(),
+            [](Interval a, Interval b) { return a.yleft < b.yleft; });
+        uint64_t index = 0;
+        for (Interval it : v) {
+            int _ = it.isleft ? 1 : 2;
+            index = index * 3 + _;
+        }
+        if (index != prevIndex)
+            addRecord();
+        prevIndex = index;
+        int depth = 0, count = 0;
+        std::vector<vec2> record;
+        bool isAcceptable = true;
+        for (int j = 0; j < (int)v.size()-1; j++) {
+            depth += 1 - 2 * (int)v[j].isleft;
+            if (depth <= 0) {
+                isAcceptable &= (v[j+1].yright > v[j].yright) &&
+                    v[j].isnonsingular && v[j+1].isnonsingular;
+                // float t = (v[j+1].yright-v[j].yright)
+                //     > (v[j+1].yleft-v[j].yleft) ? 0.75f : 0.25f;
+                float t = 0.5f;
+                vec2 p(
+                    mix(sorted[i], sorted[i+1], t),
+                    0.5f * (mix(v[j].yleft, v[j].yright, t) +
+                        mix(v[j+1].yleft, v[j+1].yright, t))
+                );
+                record.push_back(p);
+            }
+        }
+        if (isAcceptable && !record.empty())
+            records.push_back(record);
+    }
+    addRecord();
+    return holes;
+}
+
+
 void generateMesh(
     std::vector<vec2> verts,
     const std::vector<std::vector<int>> &boundary,
@@ -213,7 +311,8 @@ void generateMesh(
 
     std::vector<vec2> points;
     std::vector<ivec2> segments;
-    std::vector<vec2> holes;
+    std::vector<std::vector<vec2>> boundary_r;
+    // printf("polygon(");
     for (std::vector<int> b0 : boundary) {
         std::vector<vec2> b;
         b.reserve(b0.size());
@@ -221,17 +320,8 @@ void generateMesh(
             b.push_back(verts[i]);
         std::vector<vec2> ps = b;
         resamplePolygon(b, ps);
+        boundary_r.push_back(ps);
         int bn = (int)ps.size();
-
-        // check if it's a hole
-        float area2 = 0.0;
-        for (int i = 0; i < bn; i++)
-            area2 += determinant(mat2(ps[i], ps[(i+1)%bn]));
-        if (area2 < 0.0) {
-            vec2 p = 0.5f*(ps[1]+ps[0]);
-            vec2 d = 0.5f*(ps[1]-ps[0]);
-            holes.push_back(p-0.01f*vec2(-d.y,d.x));
-        }
 
         // add points and segments
         int i0 = (int)points.size();
@@ -240,15 +330,23 @@ void generateMesh(
             segments.push_back(ivec2(i0+i, i0+(i+1)%bn));
         }
         // printf("%d %d %f\n", bn0, bn, 0.5*area2);
+        // printf("(0,0),");
+        // for (vec2 p : ps) printf("(%f,%f),", p.x, p.y);
+        // printf("(%f,%f),(0,0)%s", ps[0].x, ps[0].y, b0==boundary.back()?")\n":",");
     }
+    // printf("["); for (vec2 p : holes) printf("(%f,%f)%s", p.x, p.y, p==holes.back()?"]\n":",");
 
     float time1 = getTimePast();
 
-    triangleWrapper(points, segments, holes, outputVerts, outputTrigs);
+    std::vector<vec2> holes = holeLocation(boundary_r);
 
     float time2 = getTimePast();
-    printf("generateMesh: %.2g + %.2g = %.2g secs\n",
-        time1-time0, time2-time1, time2-time0);
+
+    triangleWrapper(points, segments, holes, outputVerts, outputTrigs);
+
+    float time3 = getTimePast();
+    printf("generateMesh: %.2g + %.2g + %.2g = %.2g secs\n",
+        time1-time0, time2-time1, time3-time2, time3-time0);
 }
 
 
