@@ -2,5 +2,6 @@
 * text eol=lf
 
 *.wasm binary
+*.png binary
 
 Triangle/* linguist-vendored

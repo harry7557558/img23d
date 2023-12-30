@@ -424,8 +424,9 @@ void setMeshTexture(bool texture) {
 
 
 EXTERN EMSCRIPTEN_KEEPALIVE
-void resizeWindow(int w, int h) {
+void resizeWindow(int w, int h, float x, float y) {
     RenderParams::iResolution = glm::ivec2(w, h);
+    RenderParams::viewport->center = glm::vec3(x, y, 0.0f);
     RenderParams::viewport->renderNeeded = true;
 }
 

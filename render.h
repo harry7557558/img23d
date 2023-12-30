@@ -218,7 +218,9 @@ public:
         transformMatrix = glm::translate(transformMatrix, glm::vec3(0.0, 0.0, -3.0 / scale));
         transformMatrix = glm::rotate(transformMatrix, rx, glm::vec3(1, 0, 0));
         transformMatrix = glm::rotate(transformMatrix, rz, glm::vec3(0, 1, 0));
-        transformMatrix = glm::translate(transformMatrix, -center);
+        transformMatrix = mat4(
+            vec4(1,0,0,0), vec4(0,1,0,0), vec4(0,0,1,0), vec4(center, 1))
+            * transformMatrix;
     }
     // Setup transformation matrix for 2D drawing
     void initDraw2D() {
