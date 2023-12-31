@@ -132,11 +132,12 @@ void DiscretizedModel<float, float>::solveLaplacian() {
         time1 - time0, Ns, Ns, csr.getNonzeros());
     // tolerance
     float tol = 1e-8f * sqrt(vecnorm2(Ns,f)/(float)Ns);
+    int maxiter = 1000;
 #define PRECOND 1  // 1: diag; 2: cholesky; 3: ssor
 #if !PRECOND
     float time2 = time1;
     int niters = conjugateGradient(
-        Ns, linopr, (float*)f, (float*)u, 10000, tol);
+        Ns, linopr, (float*)f, (float*)u, maxiter, tol);
 #else  // !PRECOND
 #if PRECOND == 1
     // block diagonal preconditioning
@@ -173,7 +174,7 @@ void DiscretizedModel<float, float>::solveLaplacian() {
     float time2 = getTimePast();
     printf("Linear system preconditioned in %.2g secs.\n", time2 - time1);
     int niters = conjugateGradientPreconditioned(
-        Ns, linopr, precond, (float*)f, (float*)u, 10000, tol);
+        Ns, linopr, precond, (float*)f, (float*)u, maxiter, tol);
 #endif  // !PRECOND
     printf("%d iterations.\n", niters);
     float time3 = getTimePast();

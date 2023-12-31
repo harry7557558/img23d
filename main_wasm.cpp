@@ -31,6 +31,7 @@ namespace Img23d {
 int channel = 0;
 bool reverseAlpha = false;
 uint8_t threshold = 127;
+bool resampleBoundary = true;
 
 std::string name;
 uint8_t *data = nullptr;
@@ -54,6 +55,8 @@ void computeAlpha() {
     if (dataAlpha)
         delete dataAlpha;
     dataAlpha = new uint8_t[w*h];
+    uint8_t th = reverseAlpha ? ~threshold : threshold;
+    bool hasNonempty = false, hasEmpty = false;
     for (int i = 0; i < w*h; i++) {
         uint8_t c[4] = {
             data[4*i], data[4*i+1], data[4*i+2],
@@ -86,6 +89,17 @@ void computeAlpha() {
                 ((int)dataAlpha[i] * (int)c[3]) >> 8);
         if (!reverseAlpha)
             dataAlpha[i] = ~dataAlpha[i];
+        hasNonempty |= (dataAlpha[i] <= th);
+        hasEmpty |= (dataAlpha[i] > th);
+    }
+    if (!hasNonempty) {
+        emscripten_run_script("onError('warning: empty image')");
+    }
+    if (!hasEmpty) {
+        if (Img23d::channel == 0)
+            emscripten_run_script("onError('warning: image has no alpha')");
+        else
+            emscripten_run_script("onError('warning: completely filled image')");
     }
 }
 
@@ -177,7 +191,7 @@ DiscretizedModel<float, float> imageTo3D() {
         verts[i] = (2.0f*verts[i]/vec2(w,h)-1.0f)*br;
     delete[] alphas;
 
-    generateMesh(verts, boundary, verts, trigs);
+    generateMesh(verts, boundary, verts, trigs, resampleBoundary);
     splitBridgeEdges(verts, trigs);
 
     float time2 = getTimePast();
@@ -392,6 +406,16 @@ void setAlphaReverse(bool reverse) {
         RenderParams::viewport->renderNeeded = true;
     }
 }
+EXTERN EMSCRIPTEN_KEEPALIVE
+void setResampleBoundary(bool resample) {
+    bool isUpdated = Img23d::resampleBoundary == resample;
+    Img23d::resampleBoundary = resample;
+    if (!isUpdated) {
+        Img23d::model = imageTo3D();
+        prepareMesh(Img23d::model);
+        RenderParams::viewport->renderNeeded = true;
+    }
+}
 
 EXTERN EMSCRIPTEN_KEEPALIVE
 void setMeshEdge(bool edge) {
@@ -440,17 +464,6 @@ void updateImage(const char* name, int w, int h, uint8_t *data) {
     if (Img23d::data)
         delete Img23d::data;
     Img23d::data = data;
-
-    if (Img23d::channel == 0) {
-        bool containAlpha = false;
-        for (int i = 0; i < w*h; i++)
-        if (Img23d::data[4*i+3] != 255) {
-            containAlpha = true;
-            break;
-        }
-        if (!containAlpha)
-            emscripten_run_script("onError('warning: image has no alpha')");
-    }
 
     Img23d::model = imageTo3D();
     prepareMesh(Img23d::model);

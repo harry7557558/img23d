@@ -50,8 +50,8 @@ window.ModelExporter = {
 
 function onError(message) {
     let errorMessage = document.getElementById("error-message");
-    errorMessage.style.display = "inline-block";
-    errorMessage.innerHTML = message;
+    errorMessage.style.display = message ? "inline-block" : "none";
+    errorMessage.innerHTML = message ? message : "";
 }
 
 function initDragDrop() {
@@ -63,6 +63,7 @@ function initDragDrop() {
         else
             onError("error: unsupported image format");
     };
+    onError();
     function imgOnload(img_src) {
         let canvas = document.createElement("canvas");
         if (img.width == 0 || img.height == 0)
@@ -179,14 +180,17 @@ function initConfig() {
     let selectChannel = document.getElementById("select-channel");
     let sliderThreshold = document.getElementById("slider-threshold");
     let checkboxReverse = document.getElementById("checkbox-reverse");
+    let checkboxResampleBoundary = document.getElementById("checkbox-resample-boundary");
     let checkboxEdge = document.getElementById("checkbox-edge");
     let checkboxNormal = document.getElementById("checkbox-normal");
     let checkboxDoubleSided = document.getElementById("checkbox-double-sided");
     let checkboxTexture = document.getElementById("checkbox-texture");
     function updateParameters() {
+        onError();
         Module.ccall('setChannel', null, ['int'], [Number(selectChannel.value)]);
         Module.ccall('setThreshold', null, ['int'], [sliderThreshold.value]);
         Module.ccall('setAlphaReverse', null, ['int'], [checkboxReverse.checked]);
+        Module.ccall('setResampleBoundary', null, ['int'], [checkboxResampleBoundary.checked]);
         Module.ccall('setMeshEdge', null, ['int'], [checkboxEdge.checked]);
         Module.ccall('setMeshNormal', null, ['int'], [checkboxNormal.checked]);
         Module.ccall('setMeshDoubleSided', null, ['int'], [checkboxDoubleSided.checked]);
@@ -195,10 +199,12 @@ function initConfig() {
     selectChannel.addEventListener("input", updateParameters);
     sliderThreshold.addEventListener("input", updateParameters);
     checkboxReverse.addEventListener("input", updateParameters);
+    checkboxResampleBoundary.addEventListener("input", updateParameters);
     checkboxEdge.addEventListener("input", updateParameters);
     checkboxNormal.addEventListener("input", updateParameters);
     checkboxDoubleSided.addEventListener("input", updateParameters);
     checkboxTexture.addEventListener("input", updateParameters);
+    updateParameters();
     updateParameters();
 }
 

@@ -301,7 +301,8 @@ void generateMesh(
     std::vector<vec2> verts,
     const std::vector<std::vector<int>> &boundary,
     std::vector<glm::vec2>& outputVerts,
-    std::vector<glm::ivec3>& outputTrigs
+    std::vector<glm::ivec3>& outputTrigs,
+    bool resample
 ) {
     outputVerts.clear();
     outputTrigs.clear();
@@ -319,9 +320,11 @@ void generateMesh(
         for (int i : b0)
             b.push_back(verts[i]);
         std::vector<vec2> ps = b;
-        resamplePolygon(b, ps);
-        boundary_r.push_back(ps);
+        if (resample)
+            resamplePolygon(b, ps);
         int bn = (int)ps.size();
+        if (bn < 3) continue;
+        boundary_r.push_back(ps);
 
         // add points and segments
         int i0 = (int)points.size();
@@ -338,7 +341,39 @@ void generateMesh(
 
     float time1 = getTimePast();
 
-    std::vector<vec2> holes = holeLocation(boundary_r);
+    std::vector<vec2> holes;
+    if (resample)
+        holes = holeLocation(boundary_r);
+    else {
+        for (std::vector<vec2> ps : boundary_r) {
+            int bn = (int)ps.size();
+            // check if hole
+            float area2 = 0.0f;
+            for (int i = 0; i < bn; i++)
+                area2 += determinant(mat2(ps[i], ps[(i+1)%bn]));
+            if (area2 > 0.0f)
+                continue;
+            // add hole
+            vec3 best = vec3(0,0, 2.0);
+            for (int i = 0; i < bn; i++) {
+                using glm::dvec2; using glm::dmat2;
+                dvec2 p = (dvec2)ps[(i+1)%bn];
+                dvec2 p0 = (dvec2)ps[i], p1 = (dvec2)ps[(i+2)%bn];
+                double a = determinant(mat2(p-p0, p1-p));
+                if (a < 0.0) {
+                    dvec2 c = (p+p0+p1)/3.0;
+                    double d0 = determinant(dmat2(c-p, normalize(p-p0)));
+                    double d1 = determinant(dmat2(c-p, normalize(p1-p)));
+                    if (d0 < 0.0 || d1 < 0.0)
+                        continue;
+                    double b = fmax(fabs(d0-1e-3), fabs(d1-1e-3));
+                    if (b < best.z)
+                        best = vec3(c, b);
+                }
+            }
+            holes.push_back(vec2(best.x, best.y));
+        }
+    }
 
     float time2 = getTimePast();
 
