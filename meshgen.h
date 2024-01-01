@@ -162,18 +162,22 @@ void resamplePolygon(
     auto errorBetween = [&](float s1, float s2) {
         vec2 p1 = curve(s1);
         vec2 p2 = curve(s2);
-        int ns = (int)((s2-s1)/dl+0.51);
+        int ns = (int)((s2-s1)/dl+0.51f);
         float ds = (s2-s1) / ns;
         float err = 0.0;
         for (int i = 0; i < ns; i++) {
-            float s = mix(s1, s2, (i+0.5)/ns);
+            float s = mix(s1, s2, (i+0.5f)/ns);
             vec2 p = curve(s);
-            err += segmentSdf(p, p1, p2) * ds;
+            float sdf = segmentSdf(p, p1, p2);
+            // err += sdf * ds;
+            err = fmax(err, sdf);
         }
-        return err / (s2-s1);
+        // return err / (s2-s1);
+        return err;
     };
     std::vector<vec2> stack;
     stack.push_back(vec2(0.0f, clength));
+    stack.push_back(vec2(0.0f, 0.5f*clength));  // prevent instant termination
     output.clear();
     while (!stack.empty()) {
         vec2 s = stack.back();
@@ -207,160 +211,106 @@ float polygonArea(const std::vector<vec2>& polygon) {
     return 0.5f * area2;
 }
 
-bool isPointOutsideBoundary(
-    const vec2& p_,
-    const std::vector<std::vector<vec2>>& boundary
+
+std::vector<vec2> holeLocations(
+    std::vector<std::vector<vec2>> boundary
 ) {
-    glm::dvec2 p(p_);
-    int crossings = 0, windingNumber = 0;
-    double angle = 0.0;
+    int num_segments = 0;
+    std::vector<std::vector<vec2>*> hole_polygons;
+    for (auto polygon = boundary.begin(); polygon < boundary.end(); polygon++) {
+        if (polygonArea(*polygon) < 0.0f)
+            hole_polygons.push_back(&(*polygon));
+        num_segments += (int)polygon->size();
+    }
+    printf("%d contours, %d holes, %d segments\n",
+        (int)boundary.size(), (int)hole_polygons.size(), num_segments);
+    bool use_acceleration =
+        1e-3f * (float)hole_polygons.size() * (float)num_segments >
+        ((float)hole_polygons.size()+0.01f*(float)num_segments) * log((float)num_segments+1.0f);
+    use_acceleration = true;
+
+    // get a list of all segments
+    std::vector<vec4> segments;
+    segments.reserve(num_segments);
     for (auto polygon = boundary.begin(); polygon < boundary.end(); polygon++) {
         int n = (int)polygon->size();
         for (int i = 0; i < n; ++i) {
-            glm::dvec2 v1(polygon->at(i));
-            glm::dvec2 v2(polygon->at((i+1)%n));
-            // if (v1.y == v2.y || p.y == v1.y || p.y == v2.y) printf("o");
-            // double c = dot(v1-p, v2-p), s = determinant(glm::dmat2(v1-p,v2-p));
-            // angle += atan2(s, c);
-            // if (v1.y <= p.y) {
-            //     if (v2.y > p.y && glm::determinant(glm::dmat2(v2 - v1, p - v1)) > 0)
-            //         windingNumber++;
-            // } else {
-            //     if (v2.y <= p.y && glm::determinant(glm::dmat2(v2 - v1, p - v1)) < 0)
-            //         windingNumber--;
-            // }
+            vec2 v1(polygon->at(i));
+            vec2 v2(polygon->at((i+1)%n));
             if (v2.y < v1.y) std::swap(v1, v2);
-            if ((v1.y > p.y) != (v2.y > p.y) &&
-                (p.x - v1.x) * (v2.y - v1.y) < (v2.x - v1.x) * (p.y - v1.y)) {
-                crossings++;
-            }
+            segments.push_back(vec4(v1, v2));
         }
     }
-    // printf("%lf ", angle);
-    // return abs(angle) < PI;
-    // if ((crossings % 2 == 0) ^ (windingNumber == 0)) printf("x");
-    // return (crossings % 2 == 0) && (windingNumber == 0);
-    return crossings % 2 == 0;
-}
 
-std::vector<vec2> holeLocation(
-    std::vector<std::vector<vec2>> boundary
-) {
-    if (true) {
-        std::vector<vec2> holes;
-        for (auto polygon = boundary.begin(); polygon < boundary.end(); polygon++) {
-            if (polygonArea(*polygon) >= 0.0f)
-                continue;
-            int pn = (int)polygon->size();
-            srand(0);
-            for (int guess = 0; guess < 20; guess++) {
-                int i = (int)((float)rand()/(float)RAND_MAX * (float)pn);
-                int j = (i+1)%pn;
-                vec2 dp = polygon->at(j)-polygon->at(i);
-                vec2 dn = vec2(-dp.y, dp.x);
-                float u = (float)rand()/(float)RAND_MAX;
-                float v = (float)rand()/(float)RAND_MAX;
-                vec2 p = polygon->at(i)+(0.3f+0.4f*u)*dp - (0.0f+0.4f*v*v)*dn;
-                if (isPointOutsideBoundary(p, boundary)) {
-                    holes.push_back(p);
-                    break;
-                }
-            }
-        }
-        return holes;
-    }
-
-    typedef double real;
-
-    // get a sorted list of x
+    // build acceleration structure
     std::vector<float> sorted;
-    for (std::vector<vec2> polygon : boundary)
-        for (vec2 p : polygon)
-            sorted.push_back(p.x);
+    for (auto polygon = boundary.begin(); polygon < boundary.end(); polygon++)
+        for (vec2 p : *polygon)
+            sorted.push_back(p.y);
     std::sort(sorted.begin(), sorted.end());
     sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
     int sn = (int)sorted.size();
 
-    // y=mx+b intervals
-    struct Interval {
-        bool isleft, isnonsingular;
-        float yleft, yright;
-    };
-    std::vector<std::vector<Interval>> intervals(sn-1);
-    for (std::vector<vec2> polygon : boundary) {
-        int pn = (int)polygon.size();
-        for (int i = 0; i < pn; i++) {
-            int j = (i+1)%pn;
-            if (polygon[i].x == polygon[j].x)
-                continue;
-            real m = ((real)polygon[j].y - (real)polygon[i].y) /
-                ((real)polygon[j].x - (real)polygon[i].x);
-            real b = (real)polygon[i].y - m * (real)polygon[i].x;
-            int si = std::lower_bound(sorted.begin(), sorted.end(), polygon[i].x) - sorted.begin();
-            int sj = std::lower_bound(sorted.begin(), sorted.end(), polygon[j].x) - sorted.begin();
-            assert(si >= 0 && si < sn);
-            assert(sj >= 0 && sj < sn);
-            assert(si != sj);
-            assert(sorted[si] == polygon[i].x);
-            assert(sorted[sj] == polygon[j].x);
-            for (int _ = std::min(si,sj); _ < std::max(si,sj); _++) {
-                float yi = (float)(m * (real)sorted[_] + b);
-                float yj = (float)(m * (real)sorted[_+1] + b);
-                intervals[_].push_back({
-                    si>sj, fabs(m) < 20.0,
-                    si<sj?yi:yj,
-                    si<sj?yj:yi });
-            }
+    std::vector<std::vector<int>> intervals(sn);
+    for (int si = 0; si < num_segments; si++) {
+        vec4 seg = segments[si];
+        vec2 v1(seg.x, seg.y), v2(seg.z, seg.w);
+        int i1 = std::lower_bound(sorted.begin(), sorted.end(), v1.y) - sorted.begin();
+        int i2 = std::lower_bound(sorted.begin(), sorted.end(), v2.y) - sorted.begin();
+        assert(i1 >= 0 && i1 < sn);
+        assert(i2 >= 0 && i2 < sn);
+        assert(sorted[i1] == v1.y);
+        assert(sorted[i2] == v2.y);
+        for (int i = std::min(i1,i2); i < std::max(i1,i2); i++) {
+            intervals[i].push_back(si);
         }
     }
 
-    // add holes
+    // random points + test if outside boundary
     std::vector<vec2> holes;
-    int prevIndex = 0;
-    std::vector<std::vector<vec2>> records;
-    auto addRecord = [&]() {
-        if (records.empty()) return;
-        float xmid = 0.5f*(records[0][0].x + records.back()[0].x);
-        auto it = std::lower_bound(records.begin(), records.end()-1, xmid,
-            [](std::vector<vec2> a, float b) { return a[0].x < b; });
-        holes.insert(holes.end(), it->begin(), it->end());
-        records.clear();
-    };
-    for (int i = 0; i < sn-1; i++) {
-        std::vector<Interval> v = intervals[i];
-        std::sort(v.begin(), v.end(),
-            [](Interval a, Interval b) { return a.yleft < b.yleft; });
-        uint64_t index = 0;
-        for (Interval it : v) {
-            int _ = it.isleft ? 1 : 2;
-            index = index * 3 + _;
-        }
-        if (index != prevIndex)
-            addRecord();
-        prevIndex = index;
-        int depth = 0, count = 0;
-        std::vector<vec2> record;
-        bool isAcceptable = true;
-        for (int j = 0; j < (int)v.size()-1; j++) {
-            depth += 1 - 2 * (int)v[j].isleft;
-            if (depth <= 0) {
-                isAcceptable &= (v[j+1].yright > v[j].yright) &&
-                    v[j].isnonsingular && v[j+1].isnonsingular;
-                // float t = (v[j+1].yright-v[j].yright)
-                //     > (v[j+1].yleft-v[j].yleft) ? 0.75f : 0.25f;
-                float t = 0.5f;
-                vec2 p(
-                    mix(sorted[i], sorted[i+1], t),
-                    0.5f * (mix(v[j].yleft, v[j].yright, t) +
-                        mix(v[j+1].yleft, v[j+1].yright, t))
-                );
-                record.push_back(p);
+    for (const std::vector<vec2>* polygon : hole_polygons) {
+        int pn = (int)polygon->size();
+        srand(0);
+        for (int guess = 0; guess < 20; guess++) {
+            // generate random point
+            int i = (int)((float)rand()/(float)RAND_MAX * (float)pn);
+            int j = (i+1)%pn;
+            vec2 dp = polygon->at(j)-polygon->at(i);
+            vec2 dn = vec2(-dp.y, dp.x);
+            float u = (float)rand()/(float)RAND_MAX;
+            float v = (float)rand()/(float)RAND_MAX;
+            vec2 p = polygon->at(i)+(0.3f+0.4f*u)*dp - (0.0f+0.4f*v*v)*dn;
+
+            // add hole if the point is outside the boundary
+            int crossings = 0;
+            #if 0
+            for (vec4 seg : segments) {
+                vec2 v1(seg.x, seg.y), v2(seg.z, seg.w);
+                if ((v1.y > p.y) != (v2.y > p.y) &&
+                    (p.x - v1.x) * (v2.y - v1.y) < (v2.x - v1.x) * (p.y - v1.y)) {
+                    crossings++;
+                }
+            }
+            #else
+            int ii = std::upper_bound(sorted.begin(), sorted.end(), p.y) - sorted.begin() - 1;
+            if (ii < 0 || ii >= sn)
+                continue;
+            for (int si : intervals[ii]) {
+                vec4 seg = segments[si];
+                vec2 v1(seg.x, seg.y), v2(seg.z, seg.w);
+                assert(v1.y <= v2.y);
+                if ((v1.y > p.y) != (v2.y > p.y) &&
+                    (p.x - v1.x) * (v2.y - v1.y) < (v2.x - v1.x) * (p.y - v1.y)) {
+                    crossings++;
+                }
+            }
+            #endif
+            if (crossings % 2 == 0) {
+                holes.push_back(p);
+                break;
             }
         }
-        if (isAcceptable && !record.empty())
-            records.push_back(record);
     }
-    addRecord();
     return holes;
 }
 
@@ -381,7 +331,6 @@ void generateMesh(
     std::vector<vec2> points;
     std::vector<ivec2> segments;
     std::vector<std::vector<vec2>> boundary_r;
-    // printf("polygon(");
     for (std::vector<int> b0 : boundary) {
         std::vector<vec2> b;
         b.reserve(b0.size());
@@ -400,47 +349,11 @@ void generateMesh(
             points.push_back(ps[i]);
             segments.push_back(ivec2(i0+i, i0+(i+1)%bn));
         }
-        // printf("%d %d %f\n", bn0, bn, 0.5*area2);
-        // printf("(0,0),");
-        // for (vec2 p : ps) printf("(%f,%f),", p.x, p.y);
-        // printf("(%f,%f),(0,0)%s", ps[0].x, ps[0].y, b0==boundary.back()?")\n":",");
     }
-    // printf("["); for (vec2 p : holes) printf("(%f,%f)%s", p.x, p.y, p==holes.back()?"]\n":",");
 
     float time1 = getTimePast();
 
-    std::vector<vec2> holes;
-    if (resample || true)
-        holes = holeLocation(boundary_r);
-    else {
-        for (std::vector<vec2> ps : boundary_r) {
-            int bn = (int)ps.size();
-            // check if hole
-            if (polygonArea(ps) > 0.0f)
-                continue;
-            // add hole
-            vec3 best = vec3(0,0, 2.0);
-            for (int i = 0; i < bn; i++) {
-                using glm::dvec2; using glm::dmat2;
-                dvec2 p = (dvec2)ps[(i+1)%bn];
-                dvec2 p0 = (dvec2)ps[i], p1 = (dvec2)ps[(i+2)%bn];
-                double a = determinant(mat2(p-p0, p1-p));
-                if (a < 0.0) {
-                    dvec2 c = (p+p0+p1)/3.0;
-                    double d0 = determinant(dmat2(c-p, normalize(p-p0)));
-                    double d1 = determinant(dmat2(c-p, normalize(p1-p)));
-                    if (d0 <= 0.0 || d1 <= 0.0)
-                        continue;
-                    double b = fmax(fabs(d0-1e-3), fabs(d1-1e-3));
-                    // double b = fmax(fabs(log(d0/1e-3)), fabs(log(d1/1e-3)));
-                    // double b = fmax(fabs(d0-1e-4), fabs(d1-1e-4));
-                    if (b < best.z)
-                        best = vec3(c, b);
-                }
-            }
-            holes.push_back(vec2(best.x, best.y));
-        }
-    }
+    std::vector<vec2> holes = holeLocations(boundary_r);
 
     float time2 = getTimePast();
 

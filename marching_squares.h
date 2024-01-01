@@ -226,7 +226,6 @@ void marchingSquaresEdges(
         // printf("%d\n", (int)contour.size());
         boundary.push_back(contour);
     }
-    printf("%d contours\n", (int)boundary.size());
 
     // for (ivec2 e : boundaryEdges)
     //     trigs.push_back({ e[0], e[0], e[1] });

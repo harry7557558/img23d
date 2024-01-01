@@ -1,6 +1,6 @@
 // WASM, compile with Emscripten
 
-#define SUPPRESS_ASSERT 0
+#define SUPPRESS_ASSERT 1
 
 #include <emscripten/emscripten.h>
 
@@ -195,10 +195,12 @@ DiscretizedModel<float, float> imageTo3D() {
         verts[i] = (2.0f*verts[i]/vec2(w,h)-1.0f)*br;
     delete[] alphas;
 
+    float time2 = getTimePast();
+
     generateMesh(verts, boundary, verts, trigs, resampleBoundary);
     splitBridgeEdges(verts, trigs);
 
-    float time2 = getTimePast();
+    float time3 = getTimePast();
 
     DiscretizedModel<float, float> res = solveLaplacian(
         verts, std::vector<float>(verts.size(), 4.0f), trigs);
@@ -206,9 +208,9 @@ DiscretizedModel<float, float> imageTo3D() {
         res.U[i] = 1.0f*sqrt(fmax(res.U[i], 0.0f));
     float maxu = 0.0; for (int i = 0; i < res.N; i++) maxu = fmax(maxu, res.U[i]);
 
-    float time3 = getTimePast();
-    printf("imageTo3D: %.2g + %.2g + %.2g = %.2g secs\n",
-        time1-time0, time2-time1, time3-time2, time3-time0);
+    float time4 = getTimePast();
+    printf("imageTo3D: %.2g + %.2g + %.2g + %.2g = %.2g secs\n",
+        time1-time0, time2-time1, time3-time2, time4-time3, time4-time0);
 
     return res;
 }
