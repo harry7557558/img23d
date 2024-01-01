@@ -77,7 +77,8 @@ void DiscretizedModel<float, float>::constructCotangentMatrix(
             vec2 a = X[v[1]] - X[v[0]];
             vec2 b = X[v[2]] - X[v[0]];
             vec2 c = X[v[2]] - X[v[1]];
-            float cos = dot(a, b) / sqrt(dot(a, a) * dot(b, b));
+            float cos = dot(a, b) / fmax(sqrt(dot(a, a) * dot(b, b)), 1e-12f);
+            cos = clamp(cos, -0.9999f, 0.9999f);
             float w = 0.5f * cos / sqrt(1.0f - cos * cos);
             lil.addValue(Imap[v[1]], Imap[v[1]], w);
             lil.addValue(Imap[v[1]], Imap[v[2]], -w);
@@ -131,13 +132,13 @@ void DiscretizedModel<float, float>::solveLaplacian() {
     printf("Linear system constructed in %.2g secs. (%dx%d, %d nonzeros)\n",
         time1 - time0, Ns, Ns, csr.getNonzeros());
     // tolerance
-    float tol = 1e-8f * sqrt(vecnorm2(Ns,f)/(float)Ns);
-    int maxiter = 1000;
+    float tol = 1e-4f;
+    int miniter = 10, maxiter = 1000;
 #define PRECOND 1  // 1: diag; 2: cholesky; 3: ssor
 #if !PRECOND
     float time2 = time1;
     int niters = conjugateGradient(
-        Ns, linopr, (float*)f, (float*)u, maxiter, tol);
+        Ns, linopr, (float*)f, (float*)u, miniter, maxiter, tol);
 #else  // !PRECOND
 #if PRECOND == 1
     // block diagonal preconditioning
@@ -174,7 +175,7 @@ void DiscretizedModel<float, float>::solveLaplacian() {
     float time2 = getTimePast();
     printf("Linear system preconditioned in %.2g secs.\n", time2 - time1);
     int niters = conjugateGradientPreconditioned(
-        Ns, linopr, precond, (float*)f, (float*)u, maxiter, tol);
+        Ns, linopr, precond, (float*)f, (float*)u, miniter, maxiter, tol);
 #endif  // !PRECOND
     printf("%d iterations.\n", niters);
     float time3 = getTimePast();

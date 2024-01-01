@@ -73,6 +73,10 @@ void computeAlpha() {
         if (channel == 2)  // chroma
             dataAlpha[i] = std::max(std::max(c[0], c[1]), c[2])
                 - std::min(std::min(c[0], c[1]), c[2]);
+        //if (channel == 3)  // min/max
+        //    dataAlpha[i] = (uint8_t)(
+        //        ((int)std::min(std::min(c[0], c[1]), c[2]) * 256)
+        //        / (int)std::max(std::max(c[0], c[1]), std::max(c[2], (uint8_t)1)));
         if (channel == 3)  // min
             dataAlpha[i] = std::min(std::min(c[0], c[1]), c[2]);
         if (channel == 4)  // max

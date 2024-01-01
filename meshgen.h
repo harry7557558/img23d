@@ -199,9 +199,77 @@ void resamplePolygon(
 }
 
 
+float polygonArea(const std::vector<vec2>& polygon) {
+    int n = (int)polygon.size();
+    float area2 = 0.0f;
+    for (int i = 0; i < n; i++)
+        area2 += determinant(mat2(polygon[i], polygon[(i+1)%n]));
+    return 0.5f * area2;
+}
+
+bool isPointOutsideBoundary(
+    const vec2& p_,
+    const std::vector<std::vector<vec2>>& boundary
+) {
+    glm::dvec2 p(p_);
+    int crossings = 0, windingNumber = 0;
+    double angle = 0.0;
+    for (auto polygon = boundary.begin(); polygon < boundary.end(); polygon++) {
+        int n = (int)polygon->size();
+        for (int i = 0; i < n; ++i) {
+            glm::dvec2 v1(polygon->at(i));
+            glm::dvec2 v2(polygon->at((i+1)%n));
+            // if (v1.y == v2.y || p.y == v1.y || p.y == v2.y) printf("o");
+            // double c = dot(v1-p, v2-p), s = determinant(glm::dmat2(v1-p,v2-p));
+            // angle += atan2(s, c);
+            // if (v1.y <= p.y) {
+            //     if (v2.y > p.y && glm::determinant(glm::dmat2(v2 - v1, p - v1)) > 0)
+            //         windingNumber++;
+            // } else {
+            //     if (v2.y <= p.y && glm::determinant(glm::dmat2(v2 - v1, p - v1)) < 0)
+            //         windingNumber--;
+            // }
+            if (v2.y < v1.y) std::swap(v1, v2);
+            if ((v1.y > p.y) != (v2.y > p.y) &&
+                (p.x - v1.x) * (v2.y - v1.y) < (v2.x - v1.x) * (p.y - v1.y)) {
+                crossings++;
+            }
+        }
+    }
+    // printf("%lf ", angle);
+    // return abs(angle) < PI;
+    // if ((crossings % 2 == 0) ^ (windingNumber == 0)) printf("x");
+    // return (crossings % 2 == 0) && (windingNumber == 0);
+    return crossings % 2 == 0;
+}
+
 std::vector<vec2> holeLocation(
     std::vector<std::vector<vec2>> boundary
 ) {
+    if (true) {
+        std::vector<vec2> holes;
+        for (auto polygon = boundary.begin(); polygon < boundary.end(); polygon++) {
+            if (polygonArea(*polygon) >= 0.0f)
+                continue;
+            int pn = (int)polygon->size();
+            srand(0);
+            for (int guess = 0; guess < 20; guess++) {
+                int i = (int)((float)rand()/(float)RAND_MAX * (float)pn);
+                int j = (i+1)%pn;
+                vec2 dp = polygon->at(j)-polygon->at(i);
+                vec2 dn = vec2(-dp.y, dp.x);
+                float u = (float)rand()/(float)RAND_MAX;
+                float v = (float)rand()/(float)RAND_MAX;
+                vec2 p = polygon->at(i)+(0.3f+0.4f*u)*dp - (0.0f+0.4f*v*v)*dn;
+                if (isPointOutsideBoundary(p, boundary)) {
+                    holes.push_back(p);
+                    break;
+                }
+            }
+        }
+        return holes;
+    }
+
     typedef double real;
 
     // get a sorted list of x
@@ -342,16 +410,13 @@ void generateMesh(
     float time1 = getTimePast();
 
     std::vector<vec2> holes;
-    if (resample)
+    if (resample || true)
         holes = holeLocation(boundary_r);
     else {
         for (std::vector<vec2> ps : boundary_r) {
             int bn = (int)ps.size();
             // check if hole
-            float area2 = 0.0f;
-            for (int i = 0; i < bn; i++)
-                area2 += determinant(mat2(ps[i], ps[(i+1)%bn]));
-            if (area2 > 0.0f)
+            if (polygonArea(ps) > 0.0f)
                 continue;
             // add hole
             vec3 best = vec3(0,0, 2.0);
@@ -364,9 +429,11 @@ void generateMesh(
                     dvec2 c = (p+p0+p1)/3.0;
                     double d0 = determinant(dmat2(c-p, normalize(p-p0)));
                     double d1 = determinant(dmat2(c-p, normalize(p1-p)));
-                    if (d0 < 0.0 || d1 < 0.0)
+                    if (d0 <= 0.0 || d1 <= 0.0)
                         continue;
                     double b = fmax(fabs(d0-1e-3), fabs(d1-1e-3));
+                    // double b = fmax(fabs(log(d0/1e-3)), fabs(log(d1/1e-3)));
+                    // double b = fmax(fabs(d0-1e-4), fabs(d1-1e-4));
                     if (b < best.z)
                         best = vec3(c, b);
                 }

@@ -257,7 +257,7 @@ float vecdot(int n, const float* u, const float* v) {
 int conjugateGradient(
     int n,
     std::function<void(const float* src, float* res)> A,
-    const float* b, float* x, int maxiter, float tol
+    const float* b, float* x, int miniter, int maxiter, float tol
 ) {
     // r = b - Ax
     float* r = new float[n];
@@ -279,7 +279,8 @@ int conjugateGradient(
         for (int i = 0; i < n; i++) r[i] -= alpha * Ap[i];
         // β = r₁ᵀr₁ / r₀ᵀr₀
         float r21 = vecnorm2(n, r);
-        if (r21 < n*tol*tol || std::isnan(r21)) { k++; break; }
+        if ((k > miniter && r21 < tol) || std::isnan(r21)) { k++; break; }
+        if (k == miniter) tol = tol*tol*r21;
         float beta = r21 / r20;
         r20 = r21;
         // p = r + βp
@@ -301,7 +302,7 @@ int conjugateGradientPreconditioned(
     int n,
     std::function<void(const float* src, float* res)> A,
     std::function<void(const float* src, float* res)> M,
-    const float* b, float* x, int maxiter, float tol
+    const float* b, float* x, int miniter, int maxiter, float tol
 ) {
     // r = b - Ax
     float* r = new float[n];
@@ -325,7 +326,8 @@ int conjugateGradientPreconditioned(
         // r = r - αAp
         for (int i = 0; i < n; i++) r[i] -= alpha * Ap[i];
         float r2 = vecnorm2(n, r);
-        if (r2 < n*tol*tol || std::isnan(r2)) { k++; break; }
+        if ((k > miniter && r2 < tol) || std::isnan(r2)) { k++; break; }
+        if (k == miniter) tol = tol*tol*r2;
         // z₁ = M⁻¹ r₁
         M(r, z);
         // β = r₁ᵀz₁ / r₀ᵀz₀
