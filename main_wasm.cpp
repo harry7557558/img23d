@@ -192,7 +192,7 @@ DiscretizedModel<float, float> imageTo3D() {
     uint8_t th = reverseAlpha ? ~threshold : threshold;
     marchingSquaresEdges(w, h, alphas, th, verts, boundary);
     for (int i = 0; i < (int)verts.size(); i++)
-        verts[i] = (2.0f*verts[i]/vec2(w,h)-1.0f)*br;
+        verts[i] = (2.0f*verts[i]/vec2(w-1,h-1)-1.0f)*br;
     delete[] alphas;
 
     float time2 = getTimePast();

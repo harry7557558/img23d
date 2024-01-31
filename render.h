@@ -70,6 +70,7 @@ void main() {
     col *= 0.6*amb+0.5*max(dif,0.)+0.1*max(-dif,0.)+0.0*spc;
     col += 0.025+0.025*dif;
     col = pow(0.8*col, vec3(1.0/2.2));
+    col *= abs(fragColor.w);
     glFragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 })""";
 
@@ -332,7 +333,9 @@ public:
         std::vector<glm::vec3> vertices,
         std::vector<glm::vec3> normals,
         std::vector<glm::ivec2> indices,
-        std::vector<glm::vec4> colors
+        std::vector<glm::vec4> colors,
+        std::vector<glm::vec2> texcoords = std::vector<glm::vec2>(),
+        GLuint texture = -1
     ) {
         glUseProgram(this->shaderProgram);
 
@@ -357,6 +360,15 @@ public:
         glEnableVertexAttribArray(vertexColorLocation);
         glVertexAttribPointer(vertexColorLocation, 4, GL_FLOAT, GL_FALSE, 0, nullptr);
 
+        // texcoords
+        GLuint vertexTexcoordLocation = glGetAttribLocation(shaderProgram, "vertexTexcoord");
+        if (!texcoords.empty()) {
+            glBindBuffer(GL_ARRAY_BUFFER, texcoordbuffer);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec2) * texcoords.size(), &texcoords[0], GL_STATIC_DRAW);
+            glEnableVertexAttribArray(vertexTexcoordLocation);
+            glVertexAttribPointer(vertexTexcoordLocation, 2, GL_FLOAT, GL_FALSE, 0, (void*)0);
+        }
+
         // indices
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indicebuffer);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(glm::ivec2) * indices.size(), &indices[0], GL_STATIC_DRAW);
@@ -365,6 +377,11 @@ public:
         GLuint location = glGetUniformLocation(shaderProgram, "transformMatrix");
         glm::mat4 m = transformMatrix; m[3][2] -= 4e-5f;
         glUniformMatrix4fv(location, 1, GL_FALSE, &m[0][0]);
+        if (!texcoords.empty()) {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glUniform1i(glGetUniformLocation(shaderProgram, "fragTexture"), 0);
+        }
 
         // draw
         glDrawElements(GL_LINES, 2 * (int)indices.size(), GL_UNSIGNED_INT, nullptr);
@@ -373,6 +390,7 @@ public:
         glDisableVertexAttribArray(vertexPositionLocation);
         glDisableVertexAttribArray(vertexNormalLocation);
         glDisableVertexAttribArray(vertexColorLocation);
+        glDisableVertexAttribArray(vertexTexcoordLocation);
     }
 
 };
@@ -472,18 +490,23 @@ void mainGUI(void (*callback)(void)) {
         viewport->initDraw3D();
         if (!renderModel.vertices.empty()) {
             glm::vec4 colorsF(0.9, 0.9, 0.9, 1);
-            glm::vec4 colorsE(0, 0, 0, 1);
-            viewport->drawVBO(
-                renderModel.vertices, renderModel.normals, renderModel.indicesF,
+            std::vector<vec4> colors =
                 !renderModel.colors.empty() ? renderModel.colors :
                     std::vector<glm::vec4>(renderModel.vertices.size(),
-                        renderModel.texcoords.empty() ? colorsF : -colorsF),
+                        renderModel.texcoords.empty() ? colorsF : -colorsF);
+            std::vector<vec2> texcoords =
                 !renderModel.texcoords.empty() ? renderModel.texcoords :
-                    std::vector<glm::vec2>(renderModel.vertices.size(), vec2(0.0f)),
-                renderModel.texture);
-            if (!renderModel.indicesE.empty()) viewport->drawLinesVBO(
-                renderModel.vertices, renderModel.normals, renderModel.indicesE,
-                std::vector<glm::vec4>(renderModel.vertices.size(), colorsE));
+                    std::vector<glm::vec2>(renderModel.vertices.size(), vec2(0.0f));
+            viewport->drawVBO(
+                renderModel.vertices, renderModel.normals, renderModel.indicesF,
+                colors, texcoords, renderModel.texture);
+            if (!renderModel.indicesE.empty()) {
+                for (int i = 0; i < colors.size(); i++)
+                    colors[i].w = 0.5f;
+                viewport->drawLinesVBO(
+                    renderModel.vertices, renderModel.normals, renderModel.indicesE,
+                    colors, texcoords, renderModel.texture);
+            }
         }
         // axes
         viewport->drawLinesVBO(
