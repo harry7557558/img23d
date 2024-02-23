@@ -240,15 +240,25 @@
           <option value="7">blue</option>
         </select></span>
         <span><input type="range" id="slider-threshold" style="width:80px"
-            min="1" max="254" value="127" /></span>
+            min="1" max="254" value="128" /></span>
         <span><input type="checkbox" id="checkbox-reverse" />reverse</span>
         <br/>
         <span><input type="checkbox" id="checkbox-resample-boundary" checked />simplify boundary</span>
         <br/><br/>
+        <span>+z:&nbsp;<input type="range" id="slider-z-pos" style="width:75px"
+            min="0" max="999" value="500" /></span>
+        <span>-z:&nbsp;<input type="checkbox" id="checkbox-double-sided"
+            />&nbsp;<input type="range" id="slider-z-neg" style="width:75px"
+            min="0" max="999" value="500" /></span>
+        <br/>
+        <span>clip&nbsp;<input type="checkbox" id="checkbox-clip"
+          />&nbsp;+z:&nbsp;<input type="range" id="slider-clip-z-pos" style="width:60px"
+            min="1" max="999" value="500" /></span>
+        <span>-z:&nbsp;<input type="range" id="slider-clip-z-neg" style="width:60px"
+            min="1" max="999" value="500" /></span>
+        <br/>
         <span><input type="checkbox" id="checkbox-edge" />edges</span>&ensp;
-        <span><input type="checkbox" id="checkbox-normal" checked />smooth shading</span>
-        <br />
-        <span><input type="checkbox" id="checkbox-double-sided" />two sided</span>&ensp;
+        <span><input type="checkbox" id="checkbox-normal" checked />normal</span>&ensp;
         <span><input type="checkbox" id="checkbox-texture" checked />color</span>
         <br /><br />
         <span>Export:

@@ -43,6 +43,9 @@ bool showEdges = false;
 bool smoothShading = true;
 bool doubleSided = true;
 bool showTexture = true;
+float zsPos = 1.0f, zsNeg = 1.0f;
+bool zClip = false;
+float zcPos = 1.0f, zcNeg = 1.0f;
 
 float getPixel(int x, int y) {
     x = clamp(x, 0, w-1);
@@ -223,6 +226,27 @@ void prepareMesh(const DiscretizedModel<float, float> &model) {
     int vn = (int)model.X.size();
     int fn = (int)model.E.size();
 
+    // compute height threshold (based on RMS height)
+    float totHeight = 0.0, totArea = 0.0;
+    for (vec3 t : model.E) {
+        float dA = abs(0.5*determinant(mat2(
+            vec2(model.X[t[1]]-model.X[t[0]]),
+            vec2(model.X[t[2]]-model.X[t[0]])
+        )));
+        float h[3];
+        for (int _ = 0; _ < 3; _++)
+            h[_] = model.U[t[_]] * model.U[t[_]];
+        totArea += dA;
+        totHeight += dA * (h[0]+h[1]+h[2])/3.0f;
+    }
+    float rmsh = sqrt(totHeight / totArea);
+    float ztpos = rmsh * Img23d::zcPos;
+    float ztneg = rmsh * Img23d::zcNeg;
+    auto clipZ = [&](float z) {
+        float a = z > 0.0f ? ztpos : ztneg;
+        return z / sqrt(1.0+(z*z)/(a*a));
+    };
+
     // determine which verts are repeated
     std::vector<bool> isBoundary(vn, false);
     std::vector<int> vmap;
@@ -262,9 +286,15 @@ void prepareMesh(const DiscretizedModel<float, float> &model) {
         }
         if (Img23d::doubleSided) {
             for (int i = 0; i < vn; i++) if (!isBoundary[i]) {
-                renderModel.vertices[vn+vmap[i]] = renderModel.vertices[i] * vec3(1, 1, -1);
+                renderModel.vertices[vn+vmap[i]] = renderModel.vertices[i] * vec3(1, 1, -Img23d::zsNeg);
                 renderModel.texcoords[vn+vmap[i]] = renderModel.texcoords[i];
             }
+        }
+        for (int i = 0; i < vn; i++)
+            renderModel.vertices[i].z *= Img23d::zsPos;
+        if (Img23d::zClip) {
+            for (int i = 0; i < int(renderModel.vertices.size()); i++)
+                renderModel.vertices[i].z = clipZ(renderModel.vertices[i].z);
         }
         // triangles
         renderModel.indicesF.resize(fn1);
@@ -307,7 +337,9 @@ void prepareMesh(const DiscretizedModel<float, float> &model) {
                 int _i = Img23d::doubleSided && i >= fn ? 2-_ : _;
                 vec3 v = vec3(model.X[t[_]], model.U[t[_]]);
                 if (i < fn) vsmap[t[_]] = 3*i+_i;
-                if (Img23d::doubleSided && i >= fn) v[2] *= -1.0f;
+                if (Img23d::doubleSided && i >= fn) v[2] *= -Img23d::zsNeg;
+                else v[2] *= Img23d::zsPos;
+                if (Img23d::zClip) v[2] = clipZ(v[2]);
                 renderModel.vertices[3*i+_i] = v;
                 renderModel.texcoords[3*i+_i] = 0.5f + 0.5f * vec2(1,-1) * vec2(v) / scale;
                 vs[_i] = v;
@@ -452,6 +484,29 @@ void setMeshTexture(bool texture) {
     RenderParams::viewport->renderNeeded = true;
 }
 
+EXTERN EMSCRIPTEN_KEEPALIVE
+void setZScale(float zspos, float zsneg) {
+    zspos = zspos / (1.0f-zspos);
+    zsneg = zsneg / (1.0f-zsneg);
+    bool isUpdated = Img23d::zsPos == zspos && Img23d::zsNeg == zsneg;
+    Img23d::zsPos = zspos;
+    Img23d::zsNeg = zsneg;
+    if (!isUpdated) prepareMesh(Img23d::model);
+    RenderParams::viewport->renderNeeded = true;
+}
+
+EXTERN EMSCRIPTEN_KEEPALIVE
+void setZClip(bool zc, float zcpos, float zcneg) {
+    zcpos = zcpos / (1.0f-zcpos);
+    zcneg = zcneg / (1.0f-zcneg);
+    bool isUpdated = Img23d::zClip == zc &&
+        Img23d::zcPos == zcpos && Img23d::zcNeg == zcneg;
+    Img23d::zClip = zc;
+    Img23d::zcPos = zcpos;
+    Img23d::zcNeg = zcneg;
+    if (!isUpdated) prepareMesh(Img23d::model);
+    RenderParams::viewport->renderNeeded = true;
+}
 
 EXTERN EMSCRIPTEN_KEEPALIVE
 void resizeWindow(int w, int h, float x, float y) {

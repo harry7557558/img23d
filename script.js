@@ -159,6 +159,8 @@ function calcScreenCenter() {
 }
 
 function initInteraction() {
+
+    // window resize
     let canvas = document.getElementById("emscripten-canvas");
     function onresize() {
         canvas.width = window.innerWidth;
@@ -174,6 +176,19 @@ function initInteraction() {
     };
     window.addEventListener("resize", onresize);
     onresize();
+
+    // sliders - right click to reset
+    let sliders = document.querySelectorAll('input[type=range]');
+    for (var i = 0; i < sliders.length; i++) {
+        sliders[i].addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            let slider = event.target;
+            slider.value = Math.round((Number(slider.min)+Number(slider.max))/2);
+            var event = new CustomEvent("input");
+            slider.dispatchEvent(event);
+        });
+    }
+
 }
 
 function initConfig() {
@@ -185,6 +200,11 @@ function initConfig() {
     let checkboxNormal = document.getElementById("checkbox-normal");
     let checkboxDoubleSided = document.getElementById("checkbox-double-sided");
     let checkboxTexture = document.getElementById("checkbox-texture");
+    let sliderZPositive = document.getElementById("slider-z-pos");
+    let sliderZNegative = document.getElementById("slider-z-neg");
+    let checkboxClip = document.getElementById("checkbox-clip");
+    let sliderClipZPositive = document.getElementById("slider-clip-z-pos");
+    let sliderClipZNegative = document.getElementById("slider-clip-z-neg");
     function updateParameters() {
         onError();
         Module.ccall('setChannel', null, ['int'], [Number(selectChannel.value)]);
@@ -195,6 +215,15 @@ function initConfig() {
         Module.ccall('setMeshNormal', null, ['int'], [checkboxNormal.checked]);
         Module.ccall('setMeshDoubleSided', null, ['int'], [checkboxDoubleSided.checked]);
         Module.ccall('setMeshTexture', null, ['int'], [checkboxTexture.checked]);
+        Module.ccall('setZScale', null, ['number', 'number'], [
+            Number(sliderZPositive.value) / (Number(sliderZPositive.max)+1),
+            Number(sliderZNegative.value) / (Number(sliderZNegative.max)+1)
+        ]);
+        Module.ccall('setZClip', null, ['int', 'number', 'number'], [
+            checkboxClip.checked,
+            Number(sliderClipZPositive.value) / (Number(sliderClipZPositive.max)+1),
+            Number(sliderClipZNegative.value) / (Number(sliderClipZNegative.max)+1)
+        ]);
     }
     selectChannel.addEventListener("input", updateParameters);
     sliderThreshold.addEventListener("input", updateParameters);
@@ -204,6 +233,11 @@ function initConfig() {
     checkboxNormal.addEventListener("input", updateParameters);
     checkboxDoubleSided.addEventListener("input", updateParameters);
     checkboxTexture.addEventListener("input", updateParameters);
+    sliderZPositive.addEventListener("input", updateParameters);
+    sliderZNegative.addEventListener("input", updateParameters);
+    checkboxClip.addEventListener("input", updateParameters);
+    sliderClipZPositive.addEventListener("input", updateParameters);
+    sliderClipZNegative.addEventListener("input", updateParameters);
     updateParameters();
     updateParameters();
 }
